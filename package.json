@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck"
+    "check": "npm run lint && npm run typecheck && npm run test:scaffold",
+    "test:scaffold": "node --test packages/create-open-lovable/tests/*.test.js"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.1",
