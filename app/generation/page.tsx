@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, Suspense } from 'react';
+import type { GenerationPhase } from '@/lib/generation-lifecycle';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { appConfig } from '@/config/app.config';
 import HeroInput from '@/components/HeroInput';
@@ -86,7 +87,7 @@ function AISandboxPage() {
   const [isPreparingDesign, setIsPreparingDesign] = useState(false);
   const [targetUrl, setTargetUrl] = useState<string>('');
   const [sidebarScrolled, setSidebarScrolled] = useState(false);
-  const [loadingStage, setLoadingStage] = useState<'gathering' | 'planning' | 'generating' | null>(null);
+  const [loadingStage, setLoadingStage] = useState<Extract<GenerationPhase, 'gathering' | 'planning' | 'generating'> | null>(null);
   const [isStartingNewGeneration, setIsStartingNewGeneration] = useState(false);
   const [sandboxFiles, setSandboxFiles] = useState<Record<string, string>>({});
   const [hasInitialSubmission, setHasInitialSubmission] = useState<boolean>(false);
