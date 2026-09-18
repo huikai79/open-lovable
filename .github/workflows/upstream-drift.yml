@@ -1,0 +1,41 @@
+name: Upstream drift
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare with upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/firecrawl/open-lovable.git
+          git fetch --no-tags upstream main
+
+          read -r ahead behind <<< "$(git rev-list --left-right --count HEAD...upstream/main)"
+
+          {
+            echo "## Upstream drift"
+            echo ""
+            echo "- Upstream: `firecrawl/open-lovable:main`"
+            echo "- Local HEAD: `$(git rev-parse --short HEAD)`"
+            echo "- Ahead of upstream: **$ahead** commit(s)"
+            echo "- Behind upstream: **$behind** commit(s)"
+            echo ""
+            echo "This workflow is informational only; it never merges or rewrites branches."
+          } >> "$GITHUB_STEP_SUMMARY"
