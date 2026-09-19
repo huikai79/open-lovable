@@ -10,6 +10,8 @@ export interface WorkspaceRuntime {
   sandboxData: { sandboxId: string; url: string } | null;
   fileCache: SandboxFileCache | null;
   existingFiles: Set<string>;
+  lastViteRestartTime: number;
+  viteRestartInProgress: boolean;
   createdAt: number;
   lastAccessed: number;
 }
@@ -53,6 +55,8 @@ export function getWorkspaceRuntime(workspaceKey: string): WorkspaceRuntime {
     sandboxData: null,
     fileCache: null,
     existingFiles: new Set<string>(),
+    lastViteRestartTime: 0,
+    viteRestartInProgress: false,
     createdAt: Date.now(),
     lastAccessed: Date.now(),
   };
