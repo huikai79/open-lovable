@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseMorphEdits, applyMorphEditToFile } from '@/lib/morph-fast-apply';
 // Sandbox import not needed - using global sandbox from sandbox-manager
-import type { SandboxState } from '@/types/sandbox';
 import type { ConversationState } from '@/types/conversation';
 import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
-
-declare global {
-  var conversationState: ConversationState | null;
-  var activeSandboxProvider: any;
-  var existingFiles: Set<string>;
-  var sandboxState: SandboxState;
-}
+import { getWorkspaceRuntimeForRequest, WORKSPACE_HEADER } from '@/lib/sandbox/workspace-runtime';
 
 interface ParsedResponse {
   explanation: string;
@@ -262,6 +255,7 @@ function parseAIResponse(response: string): ParsedResponse {
 }
 
 export async function POST(request: NextRequest) {
+  const runtime = getWorkspaceRuntimeForRequest(request);
   try {
     const { response, isEdit = false, packages = [], sandboxId } = await request.json();
 
@@ -297,17 +291,16 @@ export async function POST(request: NextRequest) {
     }
     console.log('[apply-ai-code-stream] Packages found:', parsed.packages);
 
-    // Initialize existingFiles if not already
-    if (!global.existingFiles) {
-      global.existingFiles = new Set<string>();
-    }
+    let provider =
+      runtime.provider ||
+      (sandboxId ? sandboxManager.getProvider(sandboxId) : null);
 
-    // Try to get provider from sandbox manager first
-    let provider = sandboxId ? sandboxManager.getProvider(sandboxId) : sandboxManager.getActiveProvider();
-
-    // Fall back to global state if not found in manager
-    if (!provider) {
-      provider = global.activeSandboxProvider;
+    if (!runtime.fileCache && (sandboxId || runtime.sandboxData?.sandboxId)) {
+      runtime.fileCache = {
+        files: {},
+        lastSync: Date.now(),
+        sandboxId: sandboxId || runtime.sandboxData?.sandboxId || 'unknown'
+      };
     }
 
     // If we have a sandboxId but no provider, try to get or create one
@@ -325,8 +318,14 @@ export async function POST(request: NextRequest) {
           sandboxManager.registerSandbox(sandboxId, provider);
         }
 
-        // Update legacy global state
-        global.activeSandboxProvider = provider;
+        runtime.provider = provider;
+        const providerInfo = provider.getSandboxInfo?.();
+        if (providerInfo) {
+          runtime.sandboxData = {
+            sandboxId: providerInfo.sandboxId,
+            url: providerInfo.url
+          };
+        }
         console.log(`[apply-ai-code-stream] Successfully got provider for sandbox ${sandboxId}`);
       } catch (providerError) {
         console.error(`[apply-ai-code-stream] Failed to get or create provider for sandbox ${sandboxId}:`, providerError);
@@ -359,11 +358,15 @@ export async function POST(request: NextRequest) {
         // Register with sandbox manager
         sandboxManager.registerSandbox(sandboxInfo.sandboxId, provider);
 
-        // Store in legacy global state
-        global.activeSandboxProvider = provider;
-        global.sandboxData = {
+        runtime.provider = provider;
+        runtime.sandboxData = {
           sandboxId: sandboxInfo.sandboxId,
           url: sandboxInfo.url
+        };
+        runtime.fileCache = runtime.fileCache || {
+          files: {},
+          lastSync: Date.now(),
+          sandboxId: sandboxInfo.sandboxId
         };
 
         console.log(`[apply-ai-code-stream] Created new sandbox successfully`);
@@ -460,7 +463,10 @@ export async function POST(request: NextRequest) {
 
             const installResponse = await fetch(apiUrl, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                [WORKSPACE_HEADER]: runtime.workspaceKey
+              },
               body: JSON.stringify({
                 packages: uniquePackages,
                 sandboxId: sandboxId || providerInstance.getSandboxInfo()?.sandboxId
@@ -611,7 +617,7 @@ export async function POST(request: NextRequest) {
               normalizedPath = 'src/' + normalizedPath;
             }
 
-            const isUpdate = global.existingFiles.has(normalizedPath);
+            const isUpdate = runtime.existingFiles.has(normalizedPath);
 
             // Remove any CSS imports from JSX/JS files (we're using Tailwind)
             let fileContent = file.content;
@@ -638,8 +644,8 @@ export async function POST(request: NextRequest) {
             await providerInstance.writeFile(normalizedPath, fileContent);
 
             // Update file cache
-            if (global.sandboxState?.fileCache) {
-              global.sandboxState.fileCache.files[normalizedPath] = {
+            if (runtime.fileCache) {
+              runtime.fileCache.files[normalizedPath] = {
                 content: fileContent,
                 lastModified: Date.now()
               };
@@ -649,7 +655,7 @@ export async function POST(request: NextRequest) {
               if (results.filesUpdated) results.filesUpdated.push(normalizedPath);
             } else {
               if (results.filesCreated) results.filesCreated.push(normalizedPath);
-              if (global.existingFiles) global.existingFiles.add(normalizedPath);
+              if (runtime.existingFiles) runtime.existingFiles.add(normalizedPath);
             }
 
             await sendProgress({
@@ -746,8 +752,8 @@ export async function POST(request: NextRequest) {
         });
 
         // Track applied files in conversation state
-        if (global.conversationState && results.filesCreated.length > 0) {
-          const messages = global.conversationState.context.messages;
+        if (runtime.conversationState && results.filesCreated.length > 0) {
+          const messages = runtime.conversationState.context.messages;
           if (messages.length > 0) {
             const lastMessage = messages[messages.length - 1];
             if (lastMessage.role === 'user') {
@@ -759,15 +765,15 @@ export async function POST(request: NextRequest) {
           }
 
           // Track applied code in project evolution
-          if (global.conversationState.context.projectEvolution) {
-            global.conversationState.context.projectEvolution.majorChanges.push({
+          if (runtime.conversationState.context.projectEvolution) {
+            runtime.conversationState.context.projectEvolution.majorChanges.push({
               timestamp: Date.now(),
               description: parsed.explanation || 'Code applied',
               filesAffected: results.filesCreated || []
             });
           }
 
-          global.conversationState.lastUpdated = Date.now();
+          runtime.conversationState.lastUpdated = Date.now();
         }
 
       } catch (error) {
