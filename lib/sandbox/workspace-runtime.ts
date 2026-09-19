@@ -1,4 +1,5 @@
 import type { SandboxFileCache } from '@/types/sandbox';
+import type { ConversationState } from '@/types/conversation';
 
 export const WORKSPACE_HEADER = 'x-open-lovable-workspace';
 export const DEFAULT_WORKSPACE_KEY = 'default';
@@ -10,6 +11,7 @@ export interface WorkspaceRuntime {
   sandboxData: { sandboxId: string; url: string } | null;
   fileCache: SandboxFileCache | null;
   existingFiles: Set<string>;
+  conversationState: ConversationState | null;
   lastViteRestartTime: number;
   viteRestartInProgress: boolean;
   createdAt: number;
@@ -55,6 +57,7 @@ export function getWorkspaceRuntime(workspaceKey: string): WorkspaceRuntime {
     sandboxData: null,
     fileCache: null,
     existingFiles: new Set<string>(),
+    conversationState: null,
     lastViteRestartTime: 0,
     viteRestartInProgress: false,
     createdAt: Date.now(),
