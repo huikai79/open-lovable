@@ -2145,7 +2145,7 @@ Tip: I automatically detect and install npm packages from your code imports (lik
     addChatMessage('Creating ZIP file of your Vite app...', 'system');
     
     try {
-      const response = await fetch('/api/create-zip', {
+      const response = await workspaceFetch('/api/create-zip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
