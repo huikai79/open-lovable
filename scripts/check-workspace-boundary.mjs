@@ -26,7 +26,7 @@ function walk(dir) {
 
 const violations = [];
 for (const file of walk(root)) {
-  const normalized = path.normalize(file);
+  const normalized = path.normalize(path.relative(process.cwd(), file));
   if (legacyAllowlist.has(normalized)) continue;
 
   const source = fs.readFileSync(file, 'utf8');
