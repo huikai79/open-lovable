@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import type { GenerationPhase } from '@/lib/generation-lifecycle';
+import { workspaceFetch } from '@/lib/workspace-client';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { appConfig } from '@/config/app.config';
 import HeroInput from '@/components/HeroInput';
@@ -231,7 +232,7 @@ function AISandboxPage() {
       
       // Clear old conversation
       try {
-        await fetch('/api/conversation-state', {
+        await workspaceFetch('/api/conversation-state', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'clear-old' })
@@ -410,7 +411,7 @@ function AISandboxPage() {
     }
     
     try {
-      const response = await fetch('/api/install-packages', {
+      const response = await workspaceFetch('/api/install-packages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ packages })
@@ -473,7 +474,7 @@ function AISandboxPage() {
 
   const checkSandboxStatus = async () => {
     try {
-      const response = await fetch('/api/sandbox-status');
+      const response = await workspaceFetch('/api/sandbox-status');
       const data = await response.json();
       
       if (data.active && data.healthy && data.sandboxData) {
@@ -527,7 +528,7 @@ function AISandboxPage() {
     setScreenshotError(null);
     
     try {
-      const response = await fetch('/api/create-ai-sandbox-v2', {
+      const response = await workspaceFetch('/api/create-ai-sandbox-v2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
@@ -624,7 +625,7 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       
       // Use streaming endpoint for real-time feedback
       const effectiveSandboxData = overrideSandboxData || sandboxData;
-      const response = await fetch('/api/apply-ai-code-stream', {
+      const response = await workspaceFetch('/api/apply-ai-code-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -1052,7 +1053,7 @@ Tip: I automatically detect and install npm packages from your code imports (lik
     if (!sandboxData) return;
     
     try {
-      const response = await fetch('/api/get-sandbox-files', {
+      const response = await workspaceFetch('/api/get-sandbox-files', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -1779,7 +1780,7 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       console.log('[chat] - sandboxId:', fullContext.sandboxId);
       console.log('[chat] - isEdit:', conversationContext.appliedCode.length > 0);
       
-      const response = await fetch('/api/generate-ai-code-stream', {
+      const response = await workspaceFetch('/api/generate-ai-code-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2469,7 +2470,7 @@ Focus on the key sections and content, making it clean and modern.`;
           lastProcessedPosition: 0
         }));
         
-        const aiResponse = await fetch('/api/generate-ai-code-stream', {
+        const aiResponse = await workspaceFetch('/api/generate-ai-code-stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
