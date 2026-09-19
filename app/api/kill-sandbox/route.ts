@@ -1,49 +1,41 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
+import { getWorkspaceRuntimeForRequest } from '@/lib/sandbox/workspace-runtime';
 
-declare global {
-  var activeSandboxProvider: any;
-  var sandboxData: any;
-  var existingFiles: Set<string>;
-}
+export async function POST(request: NextRequest) {
+  const runtime = getWorkspaceRuntimeForRequest(request);
 
-export async function POST() {
   try {
-    console.log('[kill-sandbox] Stopping active sandbox...');
-
+    console.log('[kill-sandbox] Stopping workspace sandbox:', runtime.workspaceKey);
     let sandboxKilled = false;
 
-    // Stop existing sandbox if any
-    if (global.activeSandboxProvider) {
-      try {
-        await global.activeSandboxProvider.terminate();
-        sandboxKilled = true;
-        console.log('[kill-sandbox] Sandbox stopped successfully');
-      } catch (e) {
-        console.error('[kill-sandbox] Failed to stop sandbox:', e);
-      }
-      global.activeSandboxProvider = null;
-      global.sandboxData = null;
+    if (runtime.sandboxData?.sandboxId) {
+      await sandboxManager.terminateSandbox(runtime.sandboxData.sandboxId);
+      sandboxKilled = true;
+    } else if (runtime.provider) {
+      await runtime.provider.terminate();
+      sandboxKilled = true;
     }
-    
-    // Clear existing files tracking
-    if (global.existingFiles) {
-      global.existingFiles.clear();
-    }
-    
+
+    runtime.provider = null;
+    runtime.sandbox = null;
+    runtime.sandboxData = null;
+    runtime.fileCache = null;
+    runtime.existingFiles.clear();
+    runtime.viteRestartInProgress = false;
+    runtime.lastViteRestartTime = 0;
+
     return NextResponse.json({
       success: true,
+      workspaceKey: runtime.workspaceKey,
       sandboxKilled,
-      message: 'Sandbox cleaned up successfully'
+      message: 'Sandbox cleaned up successfully',
     });
-    
   } catch (error) {
     console.error('[kill-sandbox] Error:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: (error as Error).message 
-      }, 
-      { status: 500 }
+      { success: false, error: (error as Error).message },
+      { status: 500 },
     );
   }
 }
