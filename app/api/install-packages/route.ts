@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-declare global {
-  var activeSandbox: any;
-  var activeSandboxProvider: any;
-  var sandboxData: any;
-}
+import { getWorkspaceRuntimeForRequest } from '@/lib/sandbox/workspace-runtime';
 
 export async function POST(request: NextRequest) {
+  const runtime = getWorkspaceRuntimeForRequest(request);
   try {
     const { packages } = await request.json();
     // sandboxId not used - using global sandbox
@@ -38,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Get active sandbox provider
-    const provider = global.activeSandboxProvider;
+    const provider = runtime.provider;
     
     if (!provider) {
       return NextResponse.json({ 
