@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SandboxProvider } from '@/lib/sandbox/types';
-import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
-
-// Get active sandbox provider from global state
-declare global {
-  var activeSandboxProvider: any;
-}
+import { getWorkspaceRuntimeForRequest } from '@/lib/sandbox/workspace-runtime';
 
 export async function POST(request: NextRequest) {
+  const runtime = getWorkspaceRuntimeForRequest(request);
   try {
     const { command } = await request.json();
     
@@ -19,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Get provider from sandbox manager or global state
-    const provider = sandboxManager.getActiveProvider() || global.activeSandboxProvider;
+    const provider = runtime.provider;
     
     if (!provider) {
       return NextResponse.json({ 
