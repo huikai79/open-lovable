@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   DEFAULT_WORKSPACE_KEY,
+  clearWorkspaceRuntime,
+  getWorkspaceKey,
   getWorkspaceRuntime,
   listWorkspaceRuntimeKeys,
   normalizeWorkspaceKey,
@@ -32,4 +34,32 @@ test('workspace runtimes isolate mutable state', () => {
   assert.equal(b.fileCache, null);
   assert.ok(listWorkspaceRuntimeKeys().includes('test-a'));
   assert.ok(listWorkspaceRuntimeKeys().includes('test-b'));
+});
+
+
+test('workspace request requires an explicit header', () => {
+  const request = new Request('https://example.test/api');
+  assert.throws(
+    () => getWorkspaceKey(request),
+    /Missing required workspace header/,
+  );
+});
+
+test('workspace request accepts a valid explicit header', () => {
+  const request = new Request('https://example.test/api', {
+    headers: { 'x-open-lovable-workspace': 'workspace-explicit' },
+  });
+  assert.equal(getWorkspaceKey(request), 'workspace-explicit');
+});
+
+test('same workspace key reuses runtime and clear removes it', () => {
+  const first = getWorkspaceRuntime('workspace-reuse');
+  const second = getWorkspaceRuntime('workspace-reuse');
+  assert.equal(first, second);
+
+  clearWorkspaceRuntime('workspace-reuse');
+  assert.equal(listWorkspaceRuntimeKeys().includes('workspace-reuse'), false);
+
+  const third = getWorkspaceRuntime('workspace-reuse');
+  assert.notEqual(first, third);
 });
