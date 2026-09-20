@@ -2,14 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { SandboxFactory } from '@/lib/sandbox/factory';
 import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
 import {
+  finishWorkspaceCreation,
+  getOrStartWorkspaceCreation,
   getWorkspaceRuntimeForRequest,
   type WorkspaceRuntime,
+  type WorkspaceSandboxDescriptor,
 } from '@/lib/sandbox/workspace-runtime';
 
-async function createWorkspaceSandbox(runtime: WorkspaceRuntime) {
+async function createWorkspaceSandbox(
+  runtime: WorkspaceRuntime,
+): Promise<WorkspaceSandboxDescriptor> {
   let provider: any = null;
 
   try {
+    if (runtime.terminationRequested) {
+      throw new Error('Workspace creation cancelled by termination');
+    }
+
     console.log('[create-ai-sandbox-v2] Creating sandbox for workspace:', runtime.workspaceKey);
 
     if (runtime.sandboxData?.sandboxId) {
@@ -27,8 +36,16 @@ async function createWorkspaceSandbox(runtime: WorkspaceRuntime) {
     provider = SandboxFactory.create();
     const sandboxInfo = await provider.createSandbox();
 
+    if (runtime.terminationRequested) {
+      throw new Error('Workspace creation cancelled by termination');
+    }
+
     console.log('[create-ai-sandbox-v2] Setting up Vite React app...');
     await provider.setupViteApp();
+
+    if (runtime.terminationRequested) {
+      throw new Error('Workspace creation cancelled by termination');
+    }
 
     sandboxManager.registerSandbox(sandboxInfo.sandboxId, provider);
 
@@ -87,7 +104,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  let creationPromise: Promise<WorkspaceSandboxDescriptor> | null = null;
+
   try {
+    if (runtime.terminationRequested) {
+      return NextResponse.json(
+        { error: 'Workspace termination is in progress' },
+        { status: 409 },
+      );
+    }
+
     if (runtime.provider && runtime.sandboxData?.sandboxId && runtime.sandboxData?.url) {
       return NextResponse.json({
         success: true,
@@ -100,16 +126,27 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (!runtime.creationPromise) {
-      runtime.creationPromise = createWorkspaceSandbox(runtime);
-    } else {
+    const hadInFlightCreation = Boolean(runtime.creationPromise);
+    creationPromise = getOrStartWorkspaceCreation(
+      runtime,
+      () => createWorkspaceSandbox(runtime),
+    );
+
+    if (hadInFlightCreation) {
       console.log(
         '[create-ai-sandbox-v2] Reusing in-flight creation for workspace:',
         runtime.workspaceKey,
       );
     }
 
-    const sandboxInfo = await runtime.creationPromise;
+    const sandboxInfo = await creationPromise;
+
+    if (runtime.terminationRequested) {
+      return NextResponse.json(
+        { error: 'Workspace was terminated while sandbox creation completed' },
+        { status: 409 },
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -120,14 +157,20 @@ export async function POST(request: NextRequest) {
       message: 'Sandbox created and Vite React app initialized',
     });
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Failed to create sandbox';
+    const status = message.toLowerCase().includes('termination') ? 409 : 500;
+
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'Failed to create sandbox',
+        error: message,
         details: error instanceof Error ? error.stack : undefined,
       },
-      { status: 500 },
+      { status },
     );
   } finally {
-    runtime.creationPromise = null;
+    if (creationPromise) {
+      finishWorkspaceCreation(runtime, creationPromise);
+    }
   }
 }
