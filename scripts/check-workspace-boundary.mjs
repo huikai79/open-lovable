@@ -13,7 +13,9 @@ const forbidden = [
   'global.sandboxData',
   'global.conversationState',
   'global.lastViteRestartTime',
-  'global.viteRestartInProgress'
+  'global.viteRestartInProgress',
+  'sandboxManager.getProvider(sandboxId)',
+  'sandboxManager.getOrCreateProvider(sandboxId)'
 ];
 
 function walk(dir) {
