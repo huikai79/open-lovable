@@ -1073,38 +1073,6 @@ Tip: I automatically detect and install npm packages from your code imports (lik
     }
   };
   
-//   const restartViteServer = async () => {
-//     try {
-//       addChatMessage('Restarting Vite dev server...', 'system');
-//       
-//       const response = await fetch('/api/restart-vite', {
-//         method: 'POST',
-//         headers: { 'Content-Type': 'application/json' }
-//       });
-//       
-//       if (response.ok) {
-//         const data = await response.json();
-//         if (data.success) {
-//           addChatMessage('✓ Vite dev server restarted successfully!', 'system');
-//           
-//           // Refresh the iframe after a short delay
-//           setTimeout(() => {
-//             if (iframeRef.current && sandboxData?.url) {
-//               iframeRef.current.src = `${sandboxData.url}?t=${Date.now()}`;
-//             }
-//           }, 2000);
-//         } else {
-//           addChatMessage(`Failed to restart Vite: ${data.error}`, 'error');
-//         }
-//       } else {
-//         addChatMessage('Failed to restart Vite server', 'error');
-//       }
-//     } catch (error) {
-//       console.error('[restartViteServer] Error:', error);
-//       addChatMessage(`Error restarting Vite: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-//     }
-//   };
-
 //   const applyCode = async () => {
 //     const code = promptInput.trim();
 //     if (!code) {
