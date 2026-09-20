@@ -88,6 +88,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (runtime.provider && runtime.sandboxData?.sandboxId && runtime.sandboxData?.url) {
+      return NextResponse.json({
+        success: true,
+        workspaceKey: runtime.workspaceKey,
+        sandboxId: runtime.sandboxData.sandboxId,
+        url: runtime.sandboxData.url,
+        provider: runtime.provider.getSandboxInfo?.()?.provider,
+        message: 'Existing workspace sandbox is already active',
+        reused: true,
+      });
+    }
+
     if (!runtime.creationPromise) {
       runtime.creationPromise = createWorkspaceSandbox(runtime);
     } else {
