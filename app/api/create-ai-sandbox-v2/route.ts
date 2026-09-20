@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SandboxFactory } from '@/lib/sandbox/factory';
 import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
-import { getWorkspaceRuntimeForRequest } from '@/lib/sandbox/workspace-runtime';
+import {
+  getWorkspaceRuntimeForRequest,
+  type WorkspaceRuntime,
+} from '@/lib/sandbox/workspace-runtime';
 
-export async function POST(request: NextRequest) {
-  const runtime = getWorkspaceRuntimeForRequest(request);
+async function createWorkspaceSandbox(runtime: WorkspaceRuntime) {
   let provider: any = null;
 
   try {
@@ -45,14 +47,11 @@ export async function POST(request: NextRequest) {
 
     console.log('[create-ai-sandbox-v2] Sandbox ready at:', sandboxInfo.url);
 
-    return NextResponse.json({
-      success: true,
-      workspaceKey: runtime.workspaceKey,
+    return {
       sandboxId: sandboxInfo.sandboxId,
       url: sandboxInfo.url,
       provider: sandboxInfo.provider,
-      message: 'Sandbox created and Vite React app initialized',
-    });
+    };
   } catch (error) {
     console.error('[create-ai-sandbox-v2] Error:', error);
 
@@ -70,6 +69,45 @@ export async function POST(request: NextRequest) {
     runtime.fileCache = null;
     runtime.existingFiles.clear();
 
+    throw error;
+  }
+}
+
+export async function POST(request: NextRequest) {
+  let runtime: WorkspaceRuntime;
+
+  try {
+    runtime = getWorkspaceRuntimeForRequest(request);
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : 'Invalid workspace request',
+      },
+      { status: 400 },
+    );
+  }
+
+  try {
+    if (!runtime.creationPromise) {
+      runtime.creationPromise = createWorkspaceSandbox(runtime);
+    } else {
+      console.log(
+        '[create-ai-sandbox-v2] Reusing in-flight creation for workspace:',
+        runtime.workspaceKey,
+      );
+    }
+
+    const sandboxInfo = await runtime.creationPromise;
+
+    return NextResponse.json({
+      success: true,
+      workspaceKey: runtime.workspaceKey,
+      sandboxId: sandboxInfo.sandboxId,
+      url: sandboxInfo.url,
+      provider: sandboxInfo.provider,
+      message: 'Sandbox created and Vite React app initialized',
+    });
+  } catch (error) {
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : 'Failed to create sandbox',
@@ -77,5 +115,7 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 },
     );
+  } finally {
+    runtime.creationPromise = null;
   }
 }
