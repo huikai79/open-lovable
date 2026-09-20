@@ -23,6 +23,8 @@ browser session
 
 The browser stores the key in `sessionStorage`, so a new browser tab/session can have an independent runtime.
 
+Missing workspace headers fail closed on workspace-aware routes instead of silently joining a shared default runtime.
+
 ## Workspace-scoped endpoints
 
 The v3 builder path scopes sandbox state for:
