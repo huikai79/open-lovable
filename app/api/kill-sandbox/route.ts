@@ -3,6 +3,7 @@ import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
 import {
   clearWorkspaceRuntime,
   getWorkspaceRuntimeForRequest,
+  requestWorkspaceTermination,
   type WorkspaceRuntime,
 } from '@/lib/sandbox/workspace-runtime';
 
@@ -17,20 +18,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  try {
-    console.log('[kill-sandbox] Stopping workspace sandbox:', runtime.workspaceKey);
-    let sandboxKilled = false;
+  const workspaceKey = runtime.workspaceKey;
+  requestWorkspaceTermination(runtime);
 
-    if (runtime.creationPromise) {
-      try {
-        await runtime.creationPromise;
-      } catch {
-        // Failed creation has already performed its own cleanup.
-      } finally {
-        runtime.creationPromise = null;
-      }
+  let sandboxKilled = false;
+  let terminationError: Error | null = null;
+
+  console.log('[kill-sandbox] Stopping workspace sandbox:', workspaceKey);
+
+  if (runtime.creationPromise) {
+    try {
+      await runtime.creationPromise;
+    } catch {
+      // Failed/cancelled creation performs its own provider cleanup.
     }
+  }
 
+  try {
     if (runtime.sandboxData?.sandboxId) {
       await sandboxManager.terminateSandbox(runtime.sandboxData.sandboxId);
       sandboxKilled = true;
@@ -38,29 +42,43 @@ export async function POST(request: NextRequest) {
       await runtime.provider.terminate();
       sandboxKilled = true;
     }
-
+  } catch (error) {
+    terminationError =
+      error instanceof Error ? error : new Error(String(error));
+    console.error('[kill-sandbox] Remote termination failed:', terminationError);
+  } finally {
+    runtime.creationPromise = null;
     runtime.provider = null;
     runtime.sandbox = null;
     runtime.sandboxData = null;
     runtime.fileCache = null;
     runtime.existingFiles.clear();
+    runtime.conversationState = null;
     runtime.viteRestartInProgress = false;
     runtime.lastViteRestartTime = 0;
-
-    const workspaceKey = runtime.workspaceKey;
     clearWorkspaceRuntime(workspaceKey);
+  }
 
-    return NextResponse.json({
-      success: true,
-      workspaceKey,
-      sandboxKilled,
-      message: 'Sandbox cleaned up successfully',
-    });
-  } catch (error) {
-    console.error('[kill-sandbox] Error:', error);
+  if (terminationError) {
     return NextResponse.json(
-      { success: false, error: (error as Error).message },
-      { status: 500 },
+      {
+        success: false,
+        workspaceKey,
+        sandboxKilled: false,
+        localStateCleared: true,
+        error: terminationError.message,
+        message:
+          'Local workspace state was cleared, but remote sandbox termination failed',
+      },
+      { status: 502 },
     );
   }
+
+  return NextResponse.json({
+    success: true,
+    workspaceKey,
+    sandboxKilled,
+    localStateCleared: true,
+    message: 'Sandbox cleaned up successfully',
+  });
 }
