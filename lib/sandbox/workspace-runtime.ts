@@ -4,6 +4,12 @@ import type { ConversationState } from '@/types/conversation';
 export const WORKSPACE_HEADER = 'x-open-lovable-workspace';
 export const DEFAULT_WORKSPACE_KEY = 'default';
 
+export interface WorkspaceSandboxDescriptor {
+  sandboxId: string;
+  url: string;
+  provider?: string;
+}
+
 export interface WorkspaceRuntime {
   workspaceKey: string;
   provider: any | null;
@@ -14,7 +20,8 @@ export interface WorkspaceRuntime {
   conversationState: ConversationState | null;
   lastViteRestartTime: number;
   viteRestartInProgress: boolean;
-  creationPromise: Promise<{ sandboxId: string; url: string; provider?: string }> | null;
+  creationPromise: Promise<WorkspaceSandboxDescriptor> | null;
+  terminationRequested: boolean;
   createdAt: number;
   lastAccessed: number;
 }
@@ -67,6 +74,7 @@ export function getWorkspaceRuntime(workspaceKey: string): WorkspaceRuntime {
     lastViteRestartTime: 0,
     viteRestartInProgress: false,
     creationPromise: null,
+    terminationRequested: false,
     createdAt: Date.now(),
     lastAccessed: Date.now(),
   };
@@ -76,6 +84,33 @@ export function getWorkspaceRuntime(workspaceKey: string): WorkspaceRuntime {
 
 export function getWorkspaceRuntimeForRequest(request?: Request): WorkspaceRuntime {
   return getWorkspaceRuntime(getWorkspaceKey(request));
+}
+
+export function getOrStartWorkspaceCreation(
+  runtime: WorkspaceRuntime,
+  factory: () => Promise<WorkspaceSandboxDescriptor>,
+): Promise<WorkspaceSandboxDescriptor> {
+  if (runtime.terminationRequested) {
+    throw new Error('Workspace termination is in progress');
+  }
+
+  if (!runtime.creationPromise) {
+    runtime.creationPromise = factory();
+  }
+  return runtime.creationPromise;
+}
+
+export function finishWorkspaceCreation(
+  runtime: WorkspaceRuntime,
+  promise: Promise<WorkspaceSandboxDescriptor>,
+): void {
+  if (runtime.creationPromise === promise) {
+    runtime.creationPromise = null;
+  }
+}
+
+export function requestWorkspaceTermination(runtime: WorkspaceRuntime): void {
+  runtime.terminationRequested = true;
 }
 
 export function clearWorkspaceRuntime(workspaceKey: string): void {
