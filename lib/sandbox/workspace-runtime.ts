@@ -14,6 +14,7 @@ export interface WorkspaceRuntime {
   conversationState: ConversationState | null;
   lastViteRestartTime: number;
   viteRestartInProgress: boolean;
+  creationPromise: Promise<{ sandboxId: string; url: string; provider?: string }> | null;
   createdAt: number;
   lastAccessed: number;
 }
@@ -39,7 +40,12 @@ export function normalizeWorkspaceKey(value: string | null | undefined): string 
 }
 
 export function getWorkspaceKey(request?: Request): string {
-  return normalizeWorkspaceKey(request?.headers.get(WORKSPACE_HEADER));
+  if (!request) return DEFAULT_WORKSPACE_KEY;
+  const value = request.headers.get(WORKSPACE_HEADER);
+  if (!value) {
+    throw new Error(`Missing required workspace header: ${WORKSPACE_HEADER}`);
+  }
+  return normalizeWorkspaceKey(value);
 }
 
 export function getWorkspaceRuntime(workspaceKey: string): WorkspaceRuntime {
@@ -60,6 +66,7 @@ export function getWorkspaceRuntime(workspaceKey: string): WorkspaceRuntime {
     conversationState: null,
     lastViteRestartTime: 0,
     viteRestartInProgress: false,
+    creationPromise: null,
     createdAt: Date.now(),
     lastAccessed: Date.now(),
   };
