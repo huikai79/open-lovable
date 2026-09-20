@@ -3,10 +3,11 @@ import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
 import {
   clearWorkspaceRuntime,
   getWorkspaceRuntimeForRequest,
+  type WorkspaceRuntime,
 } from '@/lib/sandbox/workspace-runtime';
 
 export async function POST(request: NextRequest) {
-  let runtime;
+  let runtime: WorkspaceRuntime;
   try {
     runtime = getWorkspaceRuntimeForRequest(request);
   } catch (error) {
