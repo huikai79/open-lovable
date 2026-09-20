@@ -9,9 +9,10 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck && npm run test:scaffold && npm run test:workspace-boundary",
+    "check": "npm run lint && npm run typecheck && npm run test:scaffold && npm run test:workspace",
     "test:scaffold": "node --test packages/create-open-lovable/tests/*.test.js",
-    "test:workspace-boundary": "node scripts/check-workspace-boundary.mjs"
+    "test:workspace-boundary": "node scripts/check-workspace-boundary.mjs",
+    "test:workspace": "node --experimental-strip-types --test tests/workspace-runtime.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.1",
