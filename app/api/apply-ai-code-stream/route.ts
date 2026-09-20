@@ -291,31 +291,51 @@ export async function POST(request: NextRequest) {
     }
     console.log('[apply-ai-code-stream] Packages found:', parsed.packages);
 
-    let provider =
-      runtime.provider ||
-      (sandboxId ? sandboxManager.getProvider(sandboxId) : null);
+    const trustedSandboxId = runtime.sandboxData?.sandboxId || null;
 
-    if (!runtime.fileCache && (sandboxId || runtime.sandboxData?.sandboxId)) {
+    if (sandboxId && trustedSandboxId && sandboxId !== trustedSandboxId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'sandboxId does not belong to the current workspace'
+        },
+        { status: 409 }
+      );
+    }
+
+    if (sandboxId && !trustedSandboxId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Cannot attach an unbound sandboxId to this workspace'
+        },
+        { status: 409 }
+      );
+    }
+
+    let provider = runtime.provider;
+
+    if (!runtime.fileCache && trustedSandboxId) {
       runtime.fileCache = {
         files: {},
         lastSync: Date.now(),
-        sandboxId: sandboxId || runtime.sandboxData?.sandboxId || 'unknown'
+        sandboxId: trustedSandboxId
       };
     }
 
-    // If we have a sandboxId but no provider, try to get or create one
-    if (!provider && sandboxId) {
-      console.log(`[apply-ai-code-stream] No provider found for sandbox ${sandboxId}, attempting to get or create...`);
+    // Reconnect only to the sandbox already bound to this workspace.
+    if (!provider && trustedSandboxId) {
+      console.log(
+        `[apply-ai-code-stream] Reconnecting workspace sandbox ${trustedSandboxId}...`
+      );
 
       try {
-        provider = await sandboxManager.getOrCreateProvider(sandboxId);
+        provider =
+          sandboxManager.getProvider(trustedSandboxId) ||
+          await sandboxManager.getOrCreateProvider(trustedSandboxId);
 
-        // If we got a new provider (not reconnected), we need to create a new sandbox
         if (!provider.getSandboxInfo()) {
-          console.log(`[apply-ai-code-stream] Creating new sandbox since reconnection failed for ${sandboxId}`);
-          await provider.createSandbox();
-          await provider.setupViteApp();
-          sandboxManager.registerSandbox(sandboxId, provider);
+          throw new Error('Workspace sandbox is no longer reconnectable');
         }
 
         runtime.provider = provider;
@@ -326,22 +346,27 @@ export async function POST(request: NextRequest) {
             url: providerInfo.url
           };
         }
-        console.log(`[apply-ai-code-stream] Successfully got provider for sandbox ${sandboxId}`);
+        console.log(
+          `[apply-ai-code-stream] Reconnected workspace sandbox ${trustedSandboxId}`
+        );
       } catch (providerError) {
-        console.error(`[apply-ai-code-stream] Failed to get or create provider for sandbox ${sandboxId}:`, providerError);
+        console.error(
+          `[apply-ai-code-stream] Failed to reconnect workspace sandbox ${trustedSandboxId}:`,
+          providerError
+        );
         return NextResponse.json({
           success: false,
-          error: `Failed to create sandbox provider for ${sandboxId}. The sandbox may have expired.`,
+          error: `Failed to reconnect workspace sandbox ${trustedSandboxId}. The sandbox may have expired.`,
           results: {
             filesCreated: [],
             packagesInstalled: [],
             commandsExecuted: [],
-            errors: [`Sandbox provider creation failed: ${(providerError as Error).message}`]
+            errors: [`Sandbox provider reconnection failed: ${(providerError as Error).message}`]
           },
           explanation: parsed.explanation,
           structure: parsed.structure,
           parsedFiles: parsed.files,
-          message: `Parsed ${parsed.files.length} files but couldn't apply them - sandbox reconnection failed.`
+          message: `Parsed ${parsed.files.length} files but couldn't apply them - workspace sandbox reconnection failed.`
         }, { status: 500 });
       }
     }
@@ -469,7 +494,7 @@ export async function POST(request: NextRequest) {
               },
               body: JSON.stringify({
                 packages: uniquePackages,
-                sandboxId: sandboxId || providerInstance.getSandboxInfo()?.sandboxId
+                sandboxId: runtime.sandboxData?.sandboxId || providerInstance.getSandboxInfo()?.sandboxId
               })
             });
 
