@@ -59,7 +59,7 @@ jobs:
       - name: Lint, typecheck, and scaffold regression tests
         run: npm run check
 
-provider-smoke:
+  provider-smoke:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'provider-smoke' && inputs.confirm_external_costs == true
     needs: static-quality
     runs-on: ubuntu-latest
