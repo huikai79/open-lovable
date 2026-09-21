@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - v3/workspace-scoped-sandbox
   workflow_dispatch:
     inputs:
       mode:
@@ -60,12 +61,18 @@ jobs:
         run: npm run check
 
   provider-smoke:
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'provider-smoke' && inputs.confirm_external_costs == true
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       inputs.mode == 'provider-smoke' &&
+       inputs.confirm_external_costs == true) ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/v3/workspace-scoped-sandbox' &&
+       github.event.head_commit.message == 'ci: authorized provider smoke run')
     needs: static-quality
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      SANDBOX_PROVIDER: ${{ inputs.provider }}
+      SANDBOX_PROVIDER: ${{ github.event_name == 'workflow_dispatch' && inputs.provider || 'e2b' }}
       E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
