@@ -98,4 +98,6 @@ Required repository secrets:
 - E2B: `E2B_API_KEY`
 - Vercel PAT path: `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`
 
+Smoke artifacts are uploaded only on failure. The workflow does not retain create/status JSON responses; it keeps only short-lived, URL-redacted server/error diagnostics for troubleshooting.
+
 A passing smoke run proves that the selected provider can complete this lifecycle on the tested revision. It does not prove multi-region persistence, multi-user authorization, or long-running reliability.
