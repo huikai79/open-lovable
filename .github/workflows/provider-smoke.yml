@@ -171,14 +171,23 @@ jobs:
           print('kill: PASS')
           PY
 
+      - name: Collect smoke diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p smoke-artifacts
+          cp /tmp/open-lovable-server.log smoke-artifacts/server.log 2>/dev/null || true
+          for file in /tmp/provider-smoke-*.json /tmp/provider-smoke-*.err; do
+            [ -f "$file" ] || continue
+            cp "$file" smoke-artifacts/
+          done
+
       - name: Upload smoke diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: provider-smoke-${{ inputs.provider }}-${{ github.run_id }}
-          path: |
-            /tmp/open-lovable-server.log
-            /tmp/provider-smoke-*.json
-            /tmp/provider-smoke-*.err
+          path: smoke-artifacts/
           if-no-files-found: ignore
           retention-days: 7
