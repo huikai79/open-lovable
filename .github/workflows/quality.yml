@@ -5,6 +5,29 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validation mode
+        required: true
+        default: static
+        type: choice
+        options:
+          - static
+          - provider-smoke
+      provider:
+        description: Sandbox provider for provider-smoke
+        required: true
+        default: e2b
+        type: choice
+        options:
+          - e2b
+          - vercel
+      confirm_external_costs:
+        description: I understand provider-smoke may create billable sandbox usage
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -27,7 +50,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -35,3 +58,111 @@ jobs:
 
       - name: Lint, typecheck, and scaffold regression tests
         run: npm run check
+
+  provider-smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'provider-smoke' && inputs.confirm_external_costs == true
+    needs: static-quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SANDBOX_PROVIDER: ${{ github.event_name == 'workflow_dispatch' && inputs.provider || 'e2b' }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      NEXT_TELEMETRY_DISABLED: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Require provider credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${SANDBOX_PROVIDER}" in
+            e2b)
+              test -n "${E2B_API_KEY}" || {
+                echo "E2B_API_KEY secret is required." >&2
+                exit 2
+              }
+              ;;
+            vercel)
+              test -n "${VERCEL_TOKEN}" || {
+                echo "VERCEL_TOKEN secret is required." >&2
+                exit 2
+              }
+              test -n "${VERCEL_TEAM_ID}" || {
+                echo "VERCEL_TEAM_ID secret is required." >&2
+                exit 2
+              }
+              test -n "${VERCEL_PROJECT_ID}" || {
+                echo "VERCEL_PROJECT_ID secret is required." >&2
+                exit 2
+              }
+              ;;
+            *)
+              echo "Unsupported provider: ${SANDBOX_PROVIDER}" >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm start > /tmp/open-lovable-server.log 2>&1 &
+          echo $! > /tmp/open-lovable-server.pid
+
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:3000/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          cat /tmp/open-lovable-server.log >&2 || true
+          echo "Application did not become ready." >&2
+          exit 3
+
+      - name: Exercise workspace sandbox lifecycle
+        env:
+          PROVIDER_SMOKE_WORKSPACE: provider-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+        run: bash scripts/provider-smoke.sh
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p smoke-artifacts
+          if [ -f /tmp/open-lovable-server.log ]; then
+            sed -E 's#https?://[^[:space:]]+#<redacted-url>#g'               /tmp/open-lovable-server.log               > smoke-artifacts/server.log
+          fi
+          for file in /tmp/provider-smoke-*.err; do
+            [ -f "$file" ] || continue
+            cp "$file" smoke-artifacts/
+          done
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: provider-smoke-failure-${{ env.SANDBOX_PROVIDER }}-${{ github.run_id }}
+          path: smoke-artifacts/
+          if-no-files-found: ignore
+          retention-days: 3

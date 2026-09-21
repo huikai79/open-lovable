@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseMorphEdits, applyMorphEditToFile } from '@/lib/morph-fast-apply';
 // Sandbox import not needed - using global sandbox from sandbox-manager
-import type { SandboxState } from '@/types/sandbox';
 import type { ConversationState } from '@/types/conversation';
 import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
-
-declare global {
-  var conversationState: ConversationState | null;
-  var activeSandboxProvider: any;
-  var existingFiles: Set<string>;
-  var sandboxState: SandboxState;
-}
+import { getWorkspaceRuntimeForRequest, WORKSPACE_HEADER } from '@/lib/sandbox/workspace-runtime';
 
 interface ParsedResponse {
   explanation: string;
@@ -262,6 +255,7 @@ function parseAIResponse(response: string): ParsedResponse {
 }
 
 export async function POST(request: NextRequest) {
+  const runtime = getWorkspaceRuntimeForRequest(request);
   try {
     const { response, isEdit = false, packages = [], sandboxId } = await request.json();
 
@@ -297,52 +291,82 @@ export async function POST(request: NextRequest) {
     }
     console.log('[apply-ai-code-stream] Packages found:', parsed.packages);
 
-    // Initialize existingFiles if not already
-    if (!global.existingFiles) {
-      global.existingFiles = new Set<string>();
+    const trustedSandboxId = runtime.sandboxData?.sandboxId || null;
+
+    if (sandboxId && trustedSandboxId && sandboxId !== trustedSandboxId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'sandboxId does not belong to the current workspace'
+        },
+        { status: 409 }
+      );
     }
 
-    // Try to get provider from sandbox manager first
-    let provider = sandboxId ? sandboxManager.getProvider(sandboxId) : sandboxManager.getActiveProvider();
-
-    // Fall back to global state if not found in manager
-    if (!provider) {
-      provider = global.activeSandboxProvider;
+    if (sandboxId && !trustedSandboxId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Cannot attach an unbound sandboxId to this workspace'
+        },
+        { status: 409 }
+      );
     }
 
-    // If we have a sandboxId but no provider, try to get or create one
-    if (!provider && sandboxId) {
-      console.log(`[apply-ai-code-stream] No provider found for sandbox ${sandboxId}, attempting to get or create...`);
+    let provider = runtime.provider;
+
+    if (!runtime.fileCache && trustedSandboxId) {
+      runtime.fileCache = {
+        files: {},
+        lastSync: Date.now(),
+        sandboxId: trustedSandboxId
+      };
+    }
+
+    // Reconnect only to the sandbox already bound to this workspace.
+    if (!provider && trustedSandboxId) {
+      console.log(
+        `[apply-ai-code-stream] Reconnecting workspace sandbox ${trustedSandboxId}...`
+      );
 
       try {
-        provider = await sandboxManager.getOrCreateProvider(sandboxId);
+        provider =
+          sandboxManager.getProvider(trustedSandboxId) ||
+          await sandboxManager.getOrCreateProvider(trustedSandboxId);
 
-        // If we got a new provider (not reconnected), we need to create a new sandbox
         if (!provider.getSandboxInfo()) {
-          console.log(`[apply-ai-code-stream] Creating new sandbox since reconnection failed for ${sandboxId}`);
-          await provider.createSandbox();
-          await provider.setupViteApp();
-          sandboxManager.registerSandbox(sandboxId, provider);
+          throw new Error('Workspace sandbox is no longer reconnectable');
         }
 
-        // Update legacy global state
-        global.activeSandboxProvider = provider;
-        console.log(`[apply-ai-code-stream] Successfully got provider for sandbox ${sandboxId}`);
+        runtime.provider = provider;
+        const providerInfo = provider.getSandboxInfo?.();
+        if (providerInfo) {
+          runtime.sandboxData = {
+            sandboxId: providerInfo.sandboxId,
+            url: providerInfo.url
+          };
+        }
+        console.log(
+          `[apply-ai-code-stream] Reconnected workspace sandbox ${trustedSandboxId}`
+        );
       } catch (providerError) {
-        console.error(`[apply-ai-code-stream] Failed to get or create provider for sandbox ${sandboxId}:`, providerError);
+        console.error(
+          `[apply-ai-code-stream] Failed to reconnect workspace sandbox ${trustedSandboxId}:`,
+          providerError
+        );
         return NextResponse.json({
           success: false,
-          error: `Failed to create sandbox provider for ${sandboxId}. The sandbox may have expired.`,
+          error: `Failed to reconnect workspace sandbox ${trustedSandboxId}. The sandbox may have expired.`,
           results: {
             filesCreated: [],
             packagesInstalled: [],
             commandsExecuted: [],
-            errors: [`Sandbox provider creation failed: ${(providerError as Error).message}`]
+            errors: [`Sandbox provider reconnection failed: ${(providerError as Error).message}`]
           },
           explanation: parsed.explanation,
           structure: parsed.structure,
           parsedFiles: parsed.files,
-          message: `Parsed ${parsed.files.length} files but couldn't apply them - sandbox reconnection failed.`
+          message: `Parsed ${parsed.files.length} files but couldn't apply them - workspace sandbox reconnection failed.`
         }, { status: 500 });
       }
     }
@@ -359,11 +383,15 @@ export async function POST(request: NextRequest) {
         // Register with sandbox manager
         sandboxManager.registerSandbox(sandboxInfo.sandboxId, provider);
 
-        // Store in legacy global state
-        global.activeSandboxProvider = provider;
-        global.sandboxData = {
+        runtime.provider = provider;
+        runtime.sandboxData = {
           sandboxId: sandboxInfo.sandboxId,
           url: sandboxInfo.url
+        };
+        runtime.fileCache = runtime.fileCache || {
+          files: {},
+          lastSync: Date.now(),
+          sandboxId: sandboxInfo.sandboxId
         };
 
         console.log(`[apply-ai-code-stream] Created new sandbox successfully`);
@@ -460,10 +488,13 @@ export async function POST(request: NextRequest) {
 
             const installResponse = await fetch(apiUrl, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                [WORKSPACE_HEADER]: runtime.workspaceKey
+              },
               body: JSON.stringify({
                 packages: uniquePackages,
-                sandboxId: sandboxId || providerInstance.getSandboxInfo()?.sandboxId
+                sandboxId: runtime.sandboxData?.sandboxId || providerInstance.getSandboxInfo()?.sandboxId
               })
             });
 
@@ -611,7 +642,7 @@ export async function POST(request: NextRequest) {
               normalizedPath = 'src/' + normalizedPath;
             }
 
-            const isUpdate = global.existingFiles.has(normalizedPath);
+            const isUpdate = runtime.existingFiles.has(normalizedPath);
 
             // Remove any CSS imports from JSX/JS files (we're using Tailwind)
             let fileContent = file.content;
@@ -638,8 +669,8 @@ export async function POST(request: NextRequest) {
             await providerInstance.writeFile(normalizedPath, fileContent);
 
             // Update file cache
-            if (global.sandboxState?.fileCache) {
-              global.sandboxState.fileCache.files[normalizedPath] = {
+            if (runtime.fileCache) {
+              runtime.fileCache.files[normalizedPath] = {
                 content: fileContent,
                 lastModified: Date.now()
               };
@@ -649,7 +680,7 @@ export async function POST(request: NextRequest) {
               if (results.filesUpdated) results.filesUpdated.push(normalizedPath);
             } else {
               if (results.filesCreated) results.filesCreated.push(normalizedPath);
-              if (global.existingFiles) global.existingFiles.add(normalizedPath);
+              if (runtime.existingFiles) runtime.existingFiles.add(normalizedPath);
             }
 
             await sendProgress({
@@ -746,8 +777,8 @@ export async function POST(request: NextRequest) {
         });
 
         // Track applied files in conversation state
-        if (global.conversationState && results.filesCreated.length > 0) {
-          const messages = global.conversationState.context.messages;
+        if (runtime.conversationState && results.filesCreated.length > 0) {
+          const messages = runtime.conversationState.context.messages;
           if (messages.length > 0) {
             const lastMessage = messages[messages.length - 1];
             if (lastMessage.role === 'user') {
@@ -759,15 +790,15 @@ export async function POST(request: NextRequest) {
           }
 
           // Track applied code in project evolution
-          if (global.conversationState.context.projectEvolution) {
-            global.conversationState.context.projectEvolution.majorChanges.push({
+          if (runtime.conversationState.context.projectEvolution) {
+            runtime.conversationState.context.projectEvolution.majorChanges.push({
               timestamp: Date.now(),
               description: parsed.explanation || 'Code applied',
               filesAffected: results.filesCreated || []
             });
           }
 
-          global.conversationState.lastUpdated = Date.now();
+          runtime.conversationState.lastUpdated = Date.now();
         }
 
       } catch (error) {

@@ -1,15 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { getWorkspaceRuntimeForRequest } from '@/lib/sandbox/workspace-runtime';
 
-declare global {
-  var activeSandbox: any;
-  var activeSandboxProvider: any;
-}
-
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const runtime = getWorkspaceRuntimeForRequest(request);
   try {
     // Check both V2 provider (new) and V1 sandbox (legacy) patterns
-    const provider = global.activeSandboxProvider;
-    const sandbox = global.activeSandbox;
+    const provider = runtime.provider;
+    const sandbox = runtime.sandbox;
 
     if (!provider && !sandbox) {
       return NextResponse.json({

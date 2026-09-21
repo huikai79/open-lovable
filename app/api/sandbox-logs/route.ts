@@ -1,89 +1,57 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { getWorkspaceRuntimeForRequest } from '@/lib/sandbox/workspace-runtime';
 
-declare global {
-  var activeSandbox: any;
-}
+export async function GET(request: NextRequest) {
+  const runtime = getWorkspaceRuntimeForRequest(request);
 
-export async function GET() {
   try {
-    if (!global.activeSandbox) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'No active sandbox' 
-      }, { status: 400 });
-    }
-    
-    console.log('[sandbox-logs] Fetching Vite dev server logs...');
-    
-    // Check if Vite processes are running
-    const psResult = await global.activeSandbox.runCommand({
-      cmd: 'ps',
-      args: ['aux']
-    });
-    
-    let viteRunning = false;
-    const logContent: string[] = [];
-    
-    if (psResult.exitCode === 0) {
-      const psOutput = await psResult.stdout();
-      const viteProcesses = psOutput.split('\n').filter((line: string) => 
-        line.toLowerCase().includes('vite') || 
-        line.toLowerCase().includes('npm run dev')
+    const provider = runtime.provider;
+    if (!provider) {
+      return NextResponse.json(
+        { success: false, error: 'No active sandbox for this workspace' },
+        { status: 400 },
       );
-      
-      viteRunning = viteProcesses.length > 0;
-      
-      if (viteRunning) {
-        logContent.push("Vite is running");
-        logContent.push(...viteProcesses.slice(0, 3)); // Show first 3 processes
-      } else {
-        logContent.push("Vite process not found");
-      }
     }
-    
-    // Try to read any recent log files
+
+    const logContent: string[] = [];
+    let viteRunning = false;
+
+    const psResult = await provider.runCommand('ps aux');
+    if (psResult.success) {
+      const viteProcesses = psResult.stdout
+        .split('\n')
+        .filter((line: string) => {
+          const lower = line.toLowerCase();
+          return lower.includes('vite') || lower.includes('npm run dev');
+        });
+
+      viteRunning = viteProcesses.length > 0;
+      logContent.push(viteRunning ? 'Vite is running' : 'Vite process not found');
+      logContent.push(...viteProcesses.slice(0, 3));
+    }
+
     try {
-      const findResult = await global.activeSandbox.runCommand({
-        cmd: 'find',
-        args: ['/tmp', '-name', '*vite*', '-name', '*.log', '-type', 'f']
-      });
-      
-      if (findResult.exitCode === 0) {
-        const logFiles = (await findResult.stdout()).split('\n').filter((f: string) => f.trim());
-        
-        for (const logFile of logFiles.slice(0, 2)) {
-          try {
-            const catResult = await global.activeSandbox.runCommand({
-              cmd: 'tail',
-              args: ['-n', '10', logFile]
-            });
-            
-            if (catResult.exitCode === 0) {
-              const logFileContent = await catResult.stdout();
-              logContent.push(`--- ${logFile} ---`);
-              logContent.push(logFileContent);
-            }
-          } catch {
-            // Skip if can't read log file
-          }
-        }
+      const logResult = await provider.runCommand('tail -n 50 /tmp/vite.log');
+      if (logResult.success && logResult.stdout) {
+        logContent.push('--- /tmp/vite.log ---');
+        logContent.push(logResult.stdout);
       }
     } catch {
-      // No log files found, that's OK
+      // Log file is optional.
     }
-    
+
     return NextResponse.json({
       success: true,
+      workspaceKey: runtime.workspaceKey,
       hasErrors: false,
       logs: logContent,
-      status: viteRunning ? 'running' : 'stopped'
+      status: viteRunning ? 'running' : 'stopped',
     });
-    
   } catch (error) {
     console.error('[sandbox-logs] Error:', error);
-    return NextResponse.json({ 
-      success: false, 
-      error: (error as Error).message 
-    }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: (error as Error).message },
+      { status: 500 },
+    );
   }
 }

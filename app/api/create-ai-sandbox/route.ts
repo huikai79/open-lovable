@@ -3,6 +3,10 @@ import { Sandbox } from '@vercel/sandbox';
 import type { SandboxState } from '@/types/sandbox';
 import { appConfig } from '@/config/app.config';
 
+// LEGACY V1 SANDBOX ROUTE: retained for compatibility only.
+// The v3 builder flow uses /api/create-ai-sandbox-v2 and workspace-scoped runtime state.
+// Do not add new callers to this route; it is the sole allowlisted process-global sandbox path.
+
 // Store active sandbox globally
 declare global {
   var activeSandbox: any;
