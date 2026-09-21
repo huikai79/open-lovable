@@ -93,6 +93,8 @@ create-ai-sandbox-v2
 
 The provider-smoke job is deliberately manual because creating an external sandbox may incur provider usage/cost. A normal pull request or push never runs this external smoke path.
 
+The lifecycle itself lives in `scripts/provider-smoke.sh`. Normal zero-cost Quality runs execute `bash -n` against this script so shell syntax remains regression-tested even when no external provider is contacted.
+
 Required repository secrets:
 
 - E2B: `E2B_API_KEY`
