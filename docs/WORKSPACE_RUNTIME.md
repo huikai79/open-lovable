@@ -69,3 +69,33 @@ A workspace-aware route should:
 3. forward `X-Open-Lovable-Workspace` on internal fetches to stateful routes;
 4. use `SandboxProvider` methods where practical;
 5. fail with "no active sandbox for this workspace" instead of falling back to another workspace's active provider.
+
+
+## Pre-merge provider smoke gate
+
+The existing `Quality` workflow can be manually dispatched against this branch before merge.
+
+Use:
+
+- **mode:** `provider-smoke`
+- **provider:** `e2b` or `vercel`
+- **confirm_external_costs:** `true`
+
+The job first runs normal static quality, then starts the built Next application and exercises one real workspace through:
+
+```text
+create-ai-sandbox-v2
+  -> sandbox-status
+  -> get-sandbox-files
+  -> run-command-v2 ("printf open-lovable-provider-smoke")
+  -> kill-sandbox
+```
+
+The provider-smoke job is deliberately manual because creating an external sandbox may incur provider usage/cost. A normal pull request or push never runs this external smoke path.
+
+Required repository secrets:
+
+- E2B: `E2B_API_KEY`
+- Vercel PAT path: `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`
+
+A passing smoke run proves that the selected provider can complete this lifecycle on the tested revision. It does not prove multi-region persistence, multi-user authorization, or long-running reliability.
